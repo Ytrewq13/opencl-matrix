@@ -6,7 +6,6 @@
 #define CL_TARGET_OPENCL_VERSION 120
 
 #include "mymatrix.h"
-#include "hello_kernel.h"
 
 #include <CL/cl.h>
 
