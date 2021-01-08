@@ -16,10 +16,6 @@
 #define ARR_SRC {0.0f,1.0f,2.0f,3.0f,4.0f,5.0f,6.0f,7.0f,8.0f,9.0f,10.0f,11.0f,12.0f,13.0f,14.0f,15.0f}
 
 /* TODO:
- * - New Features
- *   - If the *result pointer is passed as NULL, functions should allocate the
- *     result. If it is non-NULL, then the function should use the existing
- *     space as the result location and write to that address instead.
  * - Refactor
  *   - Remove boilerplate from program logic (move program logic into internal
  *     function of "mymatrix.h" and just do: b.plate, call function, b.plate in

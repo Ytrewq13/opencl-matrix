@@ -44,17 +44,19 @@ void print_matrix(matrix_fp32 *m)
 // - 1 if there was an error
 int create_matrix_fp32(size_t h, size_t w, float *d, matrix_fp32 **result)
 {
-    matrix_fp32 *r = (matrix_fp32 *)malloc(sizeof(matrix_fp32));
-    if (r == NULL) return 1;
-    r->height = h;
-    r->width = w;
-    r->data = d;
-    *result = r;
+    if (*result == NULL)
+        *result = (matrix_fp32 *)malloc(sizeof(matrix_fp32));
+    if (*result == NULL) return 1;
+    if (d == NULL)
+        d = (float *)malloc(sizeof(float)*w*h);
+    if (d == NULL) return 1;
+    (*result)->height = h;
+    (*result)->width = w;
+    (*result)->data = d;
     return 0;
 }
 
 // Transpose a matrix into a given pointer location.
-// REMEMBER TO FREE() THE RESULT MATRIX (AND ALSO ITS DATA!!!)
 // Arguments:
 // m - matrix to greate the transpose of
 // result - A pointer that is modified to point to the matrix_fp32 struct that
@@ -65,20 +67,20 @@ int create_matrix_fp32(size_t h, size_t w, float *d, matrix_fp32 **result)
 int transpose(matrix_fp32 *m, matrix_fp32 **result) {
     if (m == NULL || m->data == NULL)
         return 1;
-    matrix_fp32 *t = (matrix_fp32 *)malloc(sizeof(matrix_fp32));
-    t->data = (float *)malloc(sizeof(*t->data)*m->width*m->height);
-    t->width = m->height;
-    t->height = m->width;
+    size_t w = m->width;
+    size_t h = m->height;
+    float *d = NULL;
+    if (create_matrix_fp32(w, h, d, result)) return 1;
     int i, j;
     for (i = 0; i < m->height; i++) {
         for (j = 0; j < m->width; j++) {
-            t->data[j*t->width+i] = m->data[i*m->width+j];
+            (*result)->data[j*(*result)->width+i] = m->data[i*m->width+j];
         }
     }
-    *result = t;
     return 0;
 }
 
+// TODO: create an OpenCL version of this function, using a different algorithm
 float determinant(matrix_fp32 *m) {
     int i, j, k, neg;
     float sum;
@@ -90,8 +92,15 @@ float determinant(matrix_fp32 *m) {
     neg = 1;
     for (i = 0; i < m->width; i++) {
         // Make a matrix out of the submatrix.
-        matrix_fp32 *sm = (matrix_fp32 *)malloc(sizeof(matrix_fp32));
-        sm->data = (float *)malloc(sizeof(float) * m->width * m->height);
+        size_t w = m->width - 1;
+        size_t h = m->height - 1;
+        matrix_fp32 *sm = NULL;
+        if (create_matrix_fp32(w, h, NULL, &sm))
+        {
+            fprintf(stderr, "Error allocating sub-matrix for determinant calculation\n");
+            if (sm) free(sm);
+            return INFINITY;
+        }
         sm->width = m->width - 1;
         sm->height = m->width - 1;
         // Fill in the data.
@@ -111,7 +120,6 @@ float determinant(matrix_fp32 *m) {
 }
 
 // Multiply two matrices and put the result into a given pointer
-// REMEMBER TO FREE() THE RESULT MATRIX
 // Arguments:
 // a - The first matrix to multiply
 // b - The second matrix to multiply
@@ -207,7 +215,7 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
     }
 
     // Build kernel program.
-    ret = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL); // CL_BUILD_PROGRAM_FAILURE
+    ret = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
     if (ret)
     {
         printf("ERROR: Line %d (%d)\n", __LINE__, ret);
