@@ -1,0 +1,15 @@
+const char *hellosrc =
+"__kernel void hello(__global char* string)\n"
+"{\n"
+"    string[0] = 'H';\n"
+"    string[1] = 'i';\n"
+"    string[2] = '\\0';\n"
+"}\n"
+"\n"
+"__kernel void add(__global int* a,\n"
+"                  __global int* b,\n"
+"                  __global int* c)\n"
+"{\n"
+"    size_t idx = get_global_id(0);\n"
+"    c[idx] = a[idx] + b[idx];\n"
+"}\n";
