@@ -41,7 +41,7 @@ set(CMAKE_C_STANDARD_REQUIRED True)
 include_directories(include) # "<project root>/include/"
 
 # File globbing is not recommended
-file(GLOB SOURCES "src/*.c")
+#file(GLOB SOURCES "src/*.c")
 
 # You should do this instead
 #set(SOURCES
@@ -52,6 +52,10 @@ file(GLOB SOURCES "src/*.c")
 #    .
 #    .
 #    )
+
+set(SOURCES
+    "src/main.c"
+    )
 
 add_executable(${BINNAME} ${SOURCES})
 
