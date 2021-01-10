@@ -16,9 +16,11 @@ typedef struct {
 } matrix_fp32;
 
 enum {
+    MATRIX_SUCCESS      = 0,
     ALLOCATION_FAILURE  = -1,
     INVALID_SHAPES      = -2,
-    INVALID_MATRIX      = -3
+    INVALID_MATRIX      = -3,
+    OPENCL_ERROR        = -4
 };
 
 void print_matrix(matrix_fp32 *m);

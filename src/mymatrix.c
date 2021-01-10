@@ -4,6 +4,8 @@
 #define CL_TARGET_OPENCL_VERSION 120
 #include "mymatrix.h"
 
+#include "matrix_kernels.h"
+
 /* mymatrix.c
  * Copyright Sam Whitehead, 2021
  * Last updated 2021-01-10
@@ -37,7 +39,7 @@ void print_matrix(matrix_fp32 *m)
 //          assumes that the address pointed to contains enough space for the
 //          matrix struct.
 // Return value:
-// - 0 if there was no error
+// - MATRIX_SUCCESS if there was no error
 // - ALLOCATION_FAILURE if there was an error
 int create_matrix_fp32(size_t h, size_t w, float *d, matrix_fp32 **result)
 {
@@ -50,7 +52,7 @@ int create_matrix_fp32(size_t h, size_t w, float *d, matrix_fp32 **result)
     (*result)->height = h;
     (*result)->width = w;
     (*result)->data = d;
-    return 0;
+    return MATRIX_SUCCESS;
 }
 
 // Transpose a matrix into a given pointer location.
@@ -71,14 +73,14 @@ int transpose(matrix_fp32 *m, matrix_fp32 **result)
     size_t w = m->width;
     size_t h = m->height;
     float *d = NULL;
-    if ((ret = create_matrix_fp32(w, h, d, result))) return ret;
+    if ((ret = create_matrix_fp32(w, h, d, result)) != MATRIX_SUCCESS) return ret;
     int i, j;
     for (i = 0; i < m->height; i++) {
         for (j = 0; j < m->width; j++) {
             (*result)->data[j*(*result)->width+i] = m->data[i*m->width+j];
         }
     }
-    return 0;
+    return MATRIX_SUCCESS;
 }
 
 // TODO: create an OpenCL version of this function, using a different algorithm
@@ -102,12 +104,11 @@ float determinant(matrix_fp32 *m, int *err)
         size_t w = m->width - 1;
         size_t h = m->height - 1;
         matrix_fp32 *sm = NULL;
-        if ((ret = create_matrix_fp32(w, h, NULL, &sm)) != 0)
+        if ((ret = create_matrix_fp32(w, h, NULL, &sm)) != MATRIX_SUCCESS)
         {
             fprintf(stderr, "Error allocating sub-matrix for determinant calculation\n");
             if (sm) free(sm);
-            if (err != NULL)
-                *err = ret;
+            if (err != NULL) *err = ret;
             return INFINITY;
         }
         sm->width = m->width - 1;
@@ -125,6 +126,7 @@ float determinant(matrix_fp32 *m, int *err)
         sum += neg * m->data[i] * smdet;
         neg *= -1;
     }
+    if (err != NULL) *err = MATRIX_SUCCESS;
     return sum;
 }
 
@@ -135,10 +137,14 @@ float determinant(matrix_fp32 *m, int *err)
 // result - A pointer that is modified to point to the matrix_fp32 struct that
 //          was allocated for the result
 // Return value:
-// - 0 if there was no error
-// - 1 if there was an error TODO: add specific error values
+// - MATRIX_SUCCESS if there was no error
+// - <ERROR_CODE> if there was an error:
+//      - ALLOCATION_FAILURE if allocating the data for the result matrix fails
+//      -
 int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
 {
+    int err;
+    char allocd_mat = 0;
     // Declare the OpenCL variables.
     cl_device_id device_id = NULL;
     cl_context context = NULL;
@@ -155,14 +161,18 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
     if (a->width != b->height) return 1; // Can't multiply these matrices.
     int new_width = b->width;
     int new_height = a->height;
-    float *new_data = (float *)malloc(sizeof(float) * new_width * new_height);
-    if (new_data == NULL) return 1;
-    if (create_matrix_fp32(new_height, new_width, new_data, result))
+    if (*result == NULL)
     {
-        fprintf(stderr, "Error creating result matrix in matrix multiplication"
-                " function\n");
-        free(new_data);
-        exit(EXIT_FAILURE); // FIXME: this should return an error code.
+        float *new_data = (float *)malloc(sizeof(float) * new_width * new_height);
+        if (new_data == NULL) return ALLOCATION_FAILURE;
+        if ((err = create_matrix_fp32(new_height, new_width, new_data, result)) != MATRIX_SUCCESS)
+        {
+            fprintf(stderr, "Error creating result matrix in matrix multiplication"
+                    " function\n");
+            free(new_data);
+            return err;
+        }
+        allocd_mat = 1;
     }
 
     // Get references to the data arrays of the matrices and store their size.
@@ -174,122 +184,86 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
 
     size_t worksizes[] = {new_width * new_height}; // The number of work items.
 
-    // Define the source code for the kernel.
-    const char matrix_multiply_cl[] = "                                               \n\
-        __kernel void matrix_multiply(                                                \n\
-                                      __constant float *array1,                       \n\
-                                      __constant float *array2,                       \n\
-                                      __global float *output,                         \n\
-                                               const int shared_dim,                  \n\
-                                               const int width                        \n\
-                                      )                                               \n\
-        {                                                                             \n\
-            const size_t idx = get_global_id(0);                                      \n\
-            const uint x = idx % width;                                               \n\
-            const uint y = idx / width;                                               \n\
-            uint i;                                                                   \n\
-            output[y * width + x] = 0;                                                \n\
-            for (i = 0; i < shared_dim; i++) {                                        \n\
-                output[idx] += array1[y * shared_dim + i] * array2[i * width + x];    \n\
-            }                                                                         \n\
-        }                                                                             \n\
-    ";
-
-    const char *src = matrix_multiply_cl;
     size_t src_size = (size_t)strlen(matrix_multiply_cl);
 
     // Get platform and device info.
     ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
+    if (ret) goto CLEANUP_OCL_ERR;
     ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_DEFAULT, 1, &device_id, &ret_num_devices);
+    if (ret) goto CLEANUP_OCL_ERR;
 
     // Create openCL context.
     context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);
+    if (ret) goto CLEANUP_OCL_ERR;
 
     // Create command queue.
     command_queue = clCreateCommandQueue(context, device_id, 0, &ret);
+    if (ret) goto CLEANUP_OCL_ERR;
 
     // Create memory buffer.
     arr1_buf = clCreateBuffer(context, CL_MEM_READ_ONLY, arr1_len * sizeof(float), NULL, &ret);
+    if (ret) goto CLEANUP_OCL_ERR;
     arr2_buf = clCreateBuffer(context, CL_MEM_READ_ONLY, arr2_len * sizeof(float), NULL, &ret);
+    if (ret) goto CLEANUP_OCL_ERR;
     arr_result_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, worksizes[0] * sizeof(float), NULL, &ret);
+    if (ret) goto CLEANUP_OCL_ERR;
     shared_dim_buf = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(int), NULL, &ret);
+    if (ret) goto CLEANUP_OCL_ERR;
     width_buf = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(int), NULL, &ret);
+    if (ret) goto CLEANUP_OCL_ERR;
 
     // Create kernel program from the source.
-    program = clCreateProgramWithSource(context, 1, &src, &src_size, &ret);
-    if (ret)
-    {
-        printf("ERROR: Line %d (%d)\n", __LINE__, ret);
-        exit(EXIT_FAILURE);
-    }
+    program = clCreateProgramWithSource(context, 1, &matrix_multiply_cl, &src_size, &ret);
+    if (ret) goto CLEANUP_OCL_ERR;
 
     // Build kernel program.
     ret = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
-    if (ret)
-    {
-        printf("ERROR: Line %d (%d)\n", __LINE__, ret);
-        exit(EXIT_FAILURE);
-    }
+    if (ret) goto CLEANUP_OCL_ERR;
 
     // Create OpenCL kernel.
     kernel = clCreateKernel(program, "matrix_multiply", &ret);
+    if (ret) goto CLEANUP_OCL_ERR;
 
     // Set OpenCL kernel parameters.
     ret = clSetKernelArg(kernel, 0, sizeof(arr1_buf), (void *)&arr1_buf);
-    if (ret)
-    {
-        printf("ERROR: Line %d (%d)\n", __LINE__, ret);
-        exit(EXIT_FAILURE);
-    }
+    if (ret) goto CLEANUP_OCL_ERR;
     ret = clSetKernelArg(kernel, 1, sizeof(arr2_buf), (void *)&arr2_buf);
-    if (ret)
-    {
-        printf("ERROR: Line %d (%d)\n", __LINE__, ret);
-        exit(EXIT_FAILURE);
-    }
+    if (ret) goto CLEANUP_OCL_ERR;
     ret = clSetKernelArg(kernel, 2, sizeof(arr_result_buf), (void *)&arr_result_buf);
-    if (ret)
-    {
-        printf("ERROR: Line %d (%d)\n", __LINE__, ret);
-        exit(EXIT_FAILURE);
-    }
+    if (ret) goto CLEANUP_OCL_ERR;
     ret = clSetKernelArg(kernel, 3, sizeof(shared_dim), (void *)&shared_dim);
-    if (ret)
-    {
-        printf("ERROR: Line %d (%d)\n", __LINE__, ret);
-        exit(EXIT_FAILURE);
-    }
+    if (ret) goto CLEANUP_OCL_ERR;
     ret = clSetKernelArg(kernel, 4, sizeof(new_width), (void *)&new_width);
-    if (ret)
-    {
-        printf("ERROR: Line %d (%d)\n", __LINE__, ret);
-        exit(EXIT_FAILURE);
-    }
+    if (ret) goto CLEANUP_OCL_ERR;
 
     // Copy data to the memory buffer.
     ret = clEnqueueWriteBuffer(command_queue, arr1_buf, CL_TRUE, 0, arr1_len * sizeof(float), arr1, 0, NULL, NULL);
+    if (ret) goto CLEANUP_OCL_ERR;
     ret = clEnqueueWriteBuffer(command_queue, arr2_buf, CL_TRUE, 0, arr2_len * sizeof(float), arr2, 0, NULL, NULL);
+    if (ret) goto CLEANUP_OCL_ERR;
     ret = clEnqueueWriteBuffer(command_queue, shared_dim_buf, CL_TRUE, 0, sizeof(int), &shared_dim, 0, NULL, NULL);
+    if (ret) goto CLEANUP_OCL_ERR;
     ret = clEnqueueWriteBuffer(command_queue, width_buf, CL_TRUE, 0, sizeof(int), &new_width, 0, NULL, NULL);
+    if (ret) goto CLEANUP_OCL_ERR;
 
     // Execute OpenCL kernel.
     ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, worksizes, worksizes, 0, NULL, NULL);
-    if (ret)
-    {
-        printf("ERROR: Line %d (%d)\n", __LINE__, ret);
-        exit(EXIT_FAILURE);
-    }
+    if (ret) goto CLEANUP_OCL_ERR;
 
     // Copy results from the memory buffer.
     ret = clEnqueueReadBuffer(command_queue, arr_result_buf, CL_TRUE, 0,
             new_height * new_width * sizeof(float), (*result)->data, 0, NULL, NULL);
-    if (ret)
-    {
-        printf("ERROR: Line %d (%d)\n", __LINE__, ret);
-        exit(EXIT_FAILURE);
-    }
+    if (ret) goto CLEANUP_OCL_ERR;
 
     clFinish(command_queue);
 
     return 0;
+
+CLEANUP_OCL_ERR:
+    if (allocd_mat)
+    {
+        free((*result)->data);
+        free(*result);
+    }
+    return OPENCL_ERROR;
 }
