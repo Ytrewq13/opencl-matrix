@@ -140,7 +140,8 @@ float determinant(matrix_fp32 *m, int *err)
 // - MATRIX_SUCCESS if there was no error
 // - <ERROR_CODE> if there was an error:
 //      - ALLOCATION_FAILURE if allocating the data for the result matrix fails
-//      -
+//      - INVALID_SHAPES if the matrices are the wrong shape for multiplication
+//      - OPENCL_ERROR if there was an error with the OpenCL setup/execution
 int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
 {
     int err;
@@ -158,7 +159,7 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
     cl_int ret;
 
     // Declare and allocate memory for the result matrix.
-    if (a->width != b->height) return 1; // Can't multiply these matrices.
+    if (a->width != b->height) return INVALID_SHAPES; // Can't multiply these matrices.
     int new_width = b->width;
     int new_height = a->height;
     if (*result == NULL)
