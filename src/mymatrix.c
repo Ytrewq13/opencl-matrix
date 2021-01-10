@@ -38,15 +38,15 @@ void print_matrix(matrix_fp32 *m)
 //          matrix struct.
 // Return value:
 // - 0 if there was no error
-// - 1 if there was an error
+// - ALLOCATION_FAILURE if there was an error
 int create_matrix_fp32(size_t h, size_t w, float *d, matrix_fp32 **result)
 {
     if (*result == NULL)
         *result = (matrix_fp32 *)malloc(sizeof(matrix_fp32));
-    if (*result == NULL) return 1;
+    if (*result == NULL) return ALLOCATION_FAILURE;
     if (d == NULL)
         d = (float *)malloc(sizeof(float)*w*h);
-    if (d == NULL) return 1;
+    if (d == NULL) return ALLOCATION_FAILURE;
     (*result)->height = h;
     (*result)->width = w;
     (*result)->data = d;
@@ -60,15 +60,18 @@ int create_matrix_fp32(size_t h, size_t w, float *d, matrix_fp32 **result)
 //          was allocated for the transpose
 // Return value:
 // - 0 if there was no error
-// - 1 if there was an error
+// - <ERROR_CODE> if there was an error:
+//      - INVALID_MATRIX if the matrix or its data pointer are NULL
+//      - ALLOCATION_FAILURE if creating the result matrix fails
 int transpose(matrix_fp32 *m, matrix_fp32 **result)
 {
+    int ret;
     if (m == NULL || m->data == NULL)
-        return 1;
+        return INVALID_MATRIX;
     size_t w = m->width;
     size_t h = m->height;
     float *d = NULL;
-    if (create_matrix_fp32(w, h, d, result)) return 1;
+    if ((ret = create_matrix_fp32(w, h, d, result))) return ret;
     int i, j;
     for (i = 0; i < m->height; i++) {
         for (j = 0; j < m->width; j++) {
@@ -79,12 +82,16 @@ int transpose(matrix_fp32 *m, matrix_fp32 **result)
 }
 
 // TODO: create an OpenCL version of this function, using a different algorithm
-// TODO: take a pointer (int*) where we should store an error value
-float determinant(matrix_fp32 *m)
+float determinant(matrix_fp32 *m, int *err)
 {
     int i, j, k, neg;
+    int ret;
     float sum;
-    if (m->width != m->height) return INFINITY;
+    if (m->width != m->height)
+    {
+        if (err != NULL) *err = INVALID_SHAPES; // Non-square matrices do not have determinants.
+        return INFINITY;
+    }
     if (m->width == 1) return    m->data[0];
     if (m->width == 2) return   (m->data[0] * m->data[1*m->width+1]) -
                                 (m->data[1] * m->data[1*m->width]);
@@ -95,10 +102,12 @@ float determinant(matrix_fp32 *m)
         size_t w = m->width - 1;
         size_t h = m->height - 1;
         matrix_fp32 *sm = NULL;
-        if (create_matrix_fp32(w, h, NULL, &sm))
+        if ((ret = create_matrix_fp32(w, h, NULL, &sm)) != 0)
         {
             fprintf(stderr, "Error allocating sub-matrix for determinant calculation\n");
             if (sm) free(sm);
+            if (err != NULL)
+                *err = ret;
             return INFINITY;
         }
         sm->width = m->width - 1;
@@ -110,7 +119,7 @@ float determinant(matrix_fp32 *m)
                 sm->data[j*sm->width+k] = m->data[(j+1)*m->width+a];
             }
         }
-        float smdet = determinant(sm);
+        float smdet = determinant(sm, err);
         free(sm->data);
         free(sm);
         sum += neg * m->data[i] * smdet;
@@ -127,7 +136,7 @@ float determinant(matrix_fp32 *m)
 //          was allocated for the result
 // Return value:
 // - 0 if there was no error
-// - 1 if there was an error
+// - 1 if there was an error TODO: add specific error values
 int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
 {
     // Declare the OpenCL variables.
@@ -153,7 +162,7 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
         fprintf(stderr, "Error creating result matrix in matrix multiplication"
                 " function\n");
         free(new_data);
-        exit(EXIT_FAILURE);
+        exit(EXIT_FAILURE); // FIXME: this should return an error code.
     }
 
     // Get references to the data arrays of the matrices and store their size.

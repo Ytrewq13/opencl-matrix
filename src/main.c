@@ -40,7 +40,7 @@ void matrix_test() {
         exit(EXIT_FAILURE);
     }
     print_matrix(mat);
-    printf("%f\n\n", determinant(mat));
+    printf("%f\n\n", determinant(mat, NULL));
 
     float matrix_data2[] = ARR_SRC;
     matrix_fp32 *mat2 = NULL;
@@ -51,7 +51,7 @@ void matrix_test() {
         exit(EXIT_FAILURE);
     }
     print_matrix(mat2);
-    printf("%f\n\n", determinant(mat2));
+    printf("%f\n\n", determinant(mat2, NULL));
 
     matrix_fp32 *mat_mult_result = NULL;
     if (mat_fp32_multiply(mat, mat2, &mat_mult_result))
@@ -66,7 +66,7 @@ void matrix_test() {
             mat_mult_result->height);
 
     print_matrix(mat_mult_result);
-    printf("%f\n", determinant(mat_mult_result));
+    printf("%f\n", determinant(mat_mult_result, NULL));
 
     free(mat);
     free(mat2);
