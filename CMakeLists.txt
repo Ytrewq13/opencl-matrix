@@ -55,6 +55,7 @@ include_directories(include) # "<project root>/include/"
 
 set(SOURCES
     "src/main.c"
+    "src/mymatrix.c"
     )
 
 add_executable(${BINNAME} ${SOURCES})
