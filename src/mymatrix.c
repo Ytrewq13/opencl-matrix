@@ -144,7 +144,7 @@ float determinant(matrix_fp32 *m, int *err)
 //      - OPENCL_ERROR if there was an error with the OpenCL setup/execution
 int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
 {
-    int err;
+    int err; // Error code when creating result matrix
     char allocd_mat = 0;
     // Declare the OpenCL variables.
     cl_device_id device_id = NULL;
