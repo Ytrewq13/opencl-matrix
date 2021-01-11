@@ -145,7 +145,14 @@ float determinant(matrix_fp32 *m, int *err)
 int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
 {
     int err; // Error code when creating result matrix
-    char allocd_mat = 0;
+    int new_width, new_height; // Shape of the result matrix
+    int arr1_len, arr2_len; // Sizes of the input matrices
+    int shared_dim; // Shared dimension of the matrices
+    char allocd_mat = 0; // If we allocated the result matrix
+    float *new_data; // Data array for the result matrix
+    float *arr1, *arr2; // Data arrays of the imput matrices
+    size_t src_size; // Length of The OpenCL C kernel source
+
     // Declare the OpenCL variables.
     cl_device_id device_id = NULL;
     cl_context context = NULL;
@@ -158,13 +165,15 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
     cl_uint ret_num_platforms;
     cl_int ret;
 
-    // Declare and allocate memory for the result matrix.
+    // Extract sizes of result matrix
     if (a->width != b->height) return INVALID_SHAPES; // Can't multiply these matrices.
-    int new_width = b->width;
-    int new_height = a->height;
+    new_width = b->width;
+    new_height = a->height;
+    size_t worksizes[] = {new_width * new_height}; // The number of work items.
+    // Declare and allocate memory for the result matrix.
     if (*result == NULL)
     {
-        float *new_data = (float *)malloc(sizeof(float) * new_width * new_height);
+        new_data = (float *)malloc(sizeof(float) * new_width * new_height);
         if (new_data == NULL) return ALLOCATION_FAILURE;
         if ((err = create_matrix_fp32(new_height, new_width, new_data, result)) != MATRIX_SUCCESS)
         {
@@ -177,16 +186,13 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
     }
 
     // Get references to the data arrays of the matrices and store their size.
-    float *arr1 = a->data;
-    float *arr2 = b->data;
-    int arr1_len = a->width * a->height;
-    int arr2_len = b->width * b->height;
-    int shared_dim = a->width;
+    arr1 = a->data;
+    arr2 = b->data;
+    arr1_len = a->width * a->height;
+    arr2_len = b->width * b->height;
+    shared_dim = a->width;
 
-    size_t worksizes[] = {new_width * new_height}; // The number of work items.
-
-    size_t src_size = (size_t)strlen(matrix_multiply_cl);
-
+    /* OpenCL Boilerplate **************************************************************************/
     // Get platform and device info.
     ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
     if (ret) goto CLEANUP_OCL_ERR;
@@ -214,6 +220,7 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
     if (ret) goto CLEANUP_OCL_ERR;
 
     // Create kernel program from the source.
+    src_size = (size_t)strlen(matrix_multiply_cl);
     program = clCreateProgramWithSource(context, 1, &matrix_multiply_cl, &src_size, &ret);
     if (ret) goto CLEANUP_OCL_ERR;
 
