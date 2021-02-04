@@ -173,6 +173,7 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
     // Declare and allocate memory for the result matrix.
     if (*result == NULL)
     {
+        printf("Made it to line %d\n", __LINE__);
         new_data = (float *)malloc(sizeof(float) * new_width * new_height);
         if (new_data == NULL) return ALLOCATION_FAILURE;
         if ((err = create_matrix_fp32(new_height, new_width, new_data, result)) != MATRIX_SUCCESS)
@@ -185,6 +186,7 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
         allocd_mat = 1;
     }
 
+    printf("Made it to line %d\n", __LINE__);
     // Get references to the data arrays of the matrices and store their size.
     arr1 = a->data;
     arr2 = b->data;
@@ -196,7 +198,7 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
     // Get platform and device info.
     ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
     if (ret) goto CLEANUP_OCL_ERR;
-    ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_DEFAULT, 1, &device_id, &ret_num_devices);
+    ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device_id, &ret_num_devices);
     if (ret) goto CLEANUP_OCL_ERR;
 
     // Create openCL context.
@@ -224,10 +226,13 @@ int mat_fp32_multiply(matrix_fp32 *a, matrix_fp32 *b, matrix_fp32 **result)
     program = clCreateProgramWithSource(context, 1, &matrix_multiply_cl, &src_size, &ret);
     if (ret) goto CLEANUP_OCL_ERR;
 
+    printf("Made it to line %d\n", __LINE__);
     // Build kernel program.
-    ret = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
+    printf("Building program:\n\n%s\n\n", matrix_multiply_cl);
+    ret = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL); // FIXME: Segfault
     if (ret) goto CLEANUP_OCL_ERR;
 
+    printf("Made it to line %d\n", __LINE__);
     // Create OpenCL kernel.
     kernel = clCreateKernel(program, "matrix_multiply", &ret);
     if (ret) goto CLEANUP_OCL_ERR;
